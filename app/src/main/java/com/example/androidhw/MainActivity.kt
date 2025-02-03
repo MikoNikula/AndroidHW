@@ -39,6 +39,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.ui.Alignment
 import androidx.compose.material.icons.filled.Settings
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import coil.compose.rememberAsyncImagePainter
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.text.input.TextFieldValue
+import android.content.Context
+import androidx.compose.ui.graphics.painter.Painter
+import java.io.File
+import java.io.FileOutputStream
+import java.io.InputStream
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -46,13 +57,22 @@ class MainActivity : ComponentActivity() {
         setContent {
             AndroidHWTheme {
                 val navController = rememberNavController()
+                val context = this@MainActivity
+                var imageUri by remember { mutableStateOf(loadImageUri(context)) }
+                var name by remember { mutableStateOf(loadUserName(context)) }
 
                 NavHost(
                     navController = navController,
                     startDestination = "conversation_view"
                 ) {
-                    composable("conversation_view") { ConversationView(navController) }
-                    composable("settings_view") { SettingsView(navController) }
+                    composable("conversation_view") { ConversationView(navController, name, imageUri) }
+                    composable("settings_view") { SettingsView(navController, context, name, imageUri, onNameChange = {
+                        name = it
+                        saveUserName(context, it)
+                    }, onImageChange = {
+                        imageUri = it
+                        saveImageUri(context, it)
+                    }) }
                 }
             }
         }
@@ -61,17 +81,14 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ConversationView(navController: NavController) {
+fun ConversationView(navController: NavController, userName: String, imageUri: Uri?) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(text = "Conversations") },
+                title = { Text("Conversations") },
                 actions = {
                     IconButton(onClick = { navController.navigate("settings_view") }) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "Settings"
-                        )
+                        Icon(imageVector = Icons.Default.Settings, contentDescription = "Settings")
                     }
                 }
             )
@@ -81,25 +98,33 @@ fun ConversationView(navController: NavController) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
+                .padding(16.dp)
         ) {
-            Conversation(SampleData.conversationSample)
+            Conversation(messages = SampleData.conversationSample, userName = userName, imageUri = imageUri)
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsView(navController: NavController) {
+fun SettingsView( navController: NavController,
+                  context: Context,
+                  name: String,
+                  imageUri: Uri?,
+                  onNameChange: (String) -> Unit,
+                  onImageChange: (Uri) -> Unit
+) {
+    val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        uri?.let { onImageChange(it) }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(text = "Settings") },
+                title = { Text("Settings") },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
-                        )
+                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 }
             )
@@ -113,51 +138,100 @@ fun SettingsView(navController: NavController) {
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // User Image
-            Image(
-                painter = painterResource(id = R.drawable.profile_picture),
-                contentDescription = "User Profile Picture",
-                modifier = Modifier
-                    .size(100.dp)
-                    .clip(CircleShape)
-            )
-            Spacer(modifier = Modifier.height(16.dp))
+            imageUri?.let {
+                Image(
+                    painter = rememberAsyncImagePainter(it),
+                    contentDescription = "Profile Picture",
+                    modifier = Modifier
+                        .size(120.dp)
+                        .clickable { imagePickerLauncher.launch("image/*") }
+                )
+            } ?: run {
+                Image(
+                    painter = painterResource(id = R.drawable.profile_picture),
+                    contentDescription = "Default Profile Picture",
+                    modifier = Modifier
+                        .size(120.dp)
+                        .clickable { imagePickerLauncher.launch("image/*") }
+                )
+            }
 
-            // User Name
-            Text(
-                text = "Lexi",
-                style = MaterialTheme.typography.headlineMedium
+            Spacer(modifier = Modifier.height(16.dp))
+            BasicTextField(
+                value = name,
+                onValueChange = { onNameChange(it) },
+                modifier = Modifier.padding(8.dp),
+                textStyle = MaterialTheme.typography.headlineMedium
             )
         }
     }
 }
 
+fun saveImageUri(context: Context, uri: Uri) {
+    val sharedPref = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+
+    val file = File(context.filesDir, "profile_image.jpg")
+
+    try {
+        val inputStream: InputStream? = context.contentResolver.openInputStream(uri)
+        val outputStream = FileOutputStream(file)
+        inputStream?.copyTo(outputStream)
+
+        inputStream?.close()
+        outputStream.close()
+
+        sharedPref.edit().putString("image_uri", file.absolutePath).apply()
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+}
+
+fun loadImageUri(context: Context): Uri? {
+    val sharedPref = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+    val path = sharedPref.getString("image_uri", null)
+
+    return path?.let { Uri.fromFile(File(it)) }
+}
+
+fun saveUserName(context: Context, name: String) {
+    val sharedPref = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+    sharedPref.edit().putString("user_name", name).apply()
+}
+
+fun loadUserName(context: Context): String {
+    val sharedPref = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+    return sharedPref.getString("user_name", "User") ?: "User"
+}
+
 data class Message(val author: String, val body: String)
 
 @Composable
-fun MessageCard(msg: Message) {
+fun MessageCard(msg: Message, userName: String? = null, imageUri: Uri? = null) {
     Row(modifier = Modifier.padding(all = 8.dp)) {
+        // Use updated profile picture if available; otherwise, use default
+        val painter: Painter = imageUri?.let { rememberAsyncImagePainter(it) }
+            ?: painterResource(R.drawable.profile_picture)
+
         Image(
-            painter = painterResource(R.drawable.profile_picture),
+            painter = painter,
             contentDescription = null,
             modifier = Modifier
                 .size(40.dp)
                 .clip(CircleShape)
                 .border(1.5.dp, MaterialTheme.colorScheme.primary, CircleShape)
         )
+
         Spacer(modifier = Modifier.width(8.dp))
 
-        // We keep track if the message is expanded or not in this
-        // variable
         var isExpanded by remember { mutableStateOf(false) }
-        // surfaceColor will be updated gradually from one color to the other
         val surfaceColor by animateColorAsState(
             if (isExpanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
         )
-        // We toggle the isExpanded variable when we click on this Column
+
         Column(modifier = Modifier.clickable { isExpanded = !isExpanded }) {
+            // Use updated user name if available; otherwise, use message's author
             Text(
-                text = msg.author,
+                text = userName ?: msg.author,
                 color = MaterialTheme.colorScheme.secondary,
                 style = MaterialTheme.typography.titleSmall
             )
@@ -167,16 +241,12 @@ fun MessageCard(msg: Message) {
             Surface(
                 shape = MaterialTheme.shapes.medium,
                 shadowElevation = 1.dp,
-                // surfaceColor color will be changing gradually from primary to surface
                 color = surfaceColor,
-                // animateContentSize will change the Surface size gradually
                 modifier = Modifier.animateContentSize().padding(1.dp)
             ) {
                 Text(
                     text = msg.body,
                     modifier = Modifier.padding(all = 4.dp),
-                    // If the message is expanded, we display all its content
-                    // otherwise we only display the first line
                     maxLines = if (isExpanded) Int.MAX_VALUE else 1,
                     style = MaterialTheme.typography.bodyMedium
                 )
@@ -186,10 +256,10 @@ fun MessageCard(msg: Message) {
 }
 
 @Composable
-fun Conversation(messages: List<Message>) {
+fun Conversation(messages: List<Message>, userName: String, imageUri: Uri?) {
     LazyColumn {
         items(messages) { message ->
-            MessageCard(message)
+            MessageCard(msg = message, userName = userName, imageUri = imageUri)
         }
     }
 }
@@ -198,7 +268,7 @@ fun Conversation(messages: List<Message>) {
 @Composable
 fun PreviewConversation() {
     AndroidHWTheme {
-        Conversation(SampleData.conversationSample)
+        //Conversation(SampleData.conversationSample)
     }
 }
 
