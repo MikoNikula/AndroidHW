@@ -1,15 +1,13 @@
-package com.example.androidhw
+package com.example.androidhw.ui.theme
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
-import com.example.androidhw.ui.theme.AndroidHWTheme
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.ui.res.painterResource
@@ -29,7 +27,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.material3.*
-import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -44,16 +41,43 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import coil.compose.rememberAsyncImagePainter
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.ui.text.input.TextFieldValue
 import android.content.Context
+import android.content.Intent
 import androidx.compose.ui.graphics.painter.Painter
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
+import kotlin.math.sqrt
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import android.widget.Toast
+import androidx.annotation.RequiresApi
+import com.example.androidhw.R
+import kotlin.math.abs
+import androidx.core.app.ActivityCompat
 
 class MainActivity : ComponentActivity() {
+
+    private val NOTIFICATION_PERMISSION_REQUEST = 1001
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        checkAndRequestPermissions()
+        requestNotificationPermission()
+        startSensorService()
+
         setContent {
             AndroidHWTheme {
                 val navController = rememberNavController()
@@ -61,20 +85,76 @@ class MainActivity : ComponentActivity() {
                 var imageUri by remember { mutableStateOf(loadImageUri(context)) }
                 var name by remember { mutableStateOf(loadUserName(context)) }
 
-                NavHost(
-                    navController = navController,
-                    startDestination = "conversation_view"
-                ) {
-                    composable("conversation_view") { ConversationView(navController, name, imageUri) }
-                    composable("settings_view") { SettingsView(navController, context, name, imageUri, onNameChange = {
-                        name = it
-                        saveUserName(context, it)
-                    }, onImageChange = {
-                        imageUri = it
-                        saveImageUri(context, it)
-                    }) }
+                NavHost(navController, startDestination = "conversation_view") {
+                    composable("conversation_view") {
+                        ConversationView(navController, name, imageUri)
+                    }
+                    composable("settings_view") {
+                        SettingsView(
+                            navController, context, name, imageUri,
+                            onNameChange = {
+                                name = it
+                                saveUserName(context, it)
+                            },
+                            onImageChange = {
+                                imageUri = it
+                                saveImageUri(context, it)
+                            }
+                        )
+                    }
                 }
             }
+        }
+    }
+
+    private fun checkAndRequestPermissions() {
+        val permissionsToRequest = mutableListOf<String>()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACTIVITY_RECOGNITION) != PackageManager.PERMISSION_GRANTED) {
+                permissionsToRequest.add(Manifest.permission.ACTIVITY_RECOGNITION)
+            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BODY_SENSORS) != PackageManager.PERMISSION_GRANTED) {
+                permissionsToRequest.add(Manifest.permission.BODY_SENSORS)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.FOREGROUND_SERVICE_HEALTH) != PackageManager.PERMISSION_GRANTED) {
+                    permissionsToRequest.add(Manifest.permission.FOREGROUND_SERVICE_HEALTH)
+                }
+            }
+        }
+
+        if (permissionsToRequest.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, permissionsToRequest.toTypedArray(), 1)
+        }
+    }
+
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                    NOTIFICATION_PERMISSION_REQUEST
+                )
+            }
+        }
+    }
+
+    private fun startSensorService() {
+        val serviceIntent = Intent(this, SensorService::class.java)
+        ContextCompat.startForegroundService(this, serviceIntent)
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == NOTIFICATION_PERMISSION_REQUEST) {
+            (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED)
         }
     }
 }

@@ -1,7 +1,7 @@
 /**
  * SampleData for Jetpack Compose Tutorial 
  */
-package com.example.androidhw
+package com.example.androidhw.ui.theme
 
 object SampleData {
     // Sample conversation data
