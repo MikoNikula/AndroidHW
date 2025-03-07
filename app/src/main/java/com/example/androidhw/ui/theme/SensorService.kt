@@ -9,7 +9,6 @@ import android.hardware.*
 import android.os.Build
 import android.os.IBinder
 import androidx.annotation.RequiresApi
-import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import kotlin.math.abs

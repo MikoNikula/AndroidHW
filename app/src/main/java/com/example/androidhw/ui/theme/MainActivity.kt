@@ -47,25 +47,18 @@ import androidx.compose.ui.graphics.painter.Painter
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
-import kotlin.math.sqrt
-import android.hardware.Sensor
-import android.hardware.SensorEvent
-import android.hardware.SensorEventListener
-import android.hardware.SensorManager
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
-import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
-import android.widget.Toast
-import androidx.annotation.RequiresApi
+import androidx.activity.enableEdgeToEdge
 import com.example.androidhw.R
-import kotlin.math.abs
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import androidx.compose.ui.platform.LocalContext
+
 import androidx.core.app.ActivityCompat
+
 
 class MainActivity : ComponentActivity() {
 
@@ -75,9 +68,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         checkAndRequestPermissions()
-        requestNotificationPermission()
-        startSensorService()
 
+        enableEdgeToEdge()
         setContent {
             AndroidHWTheme {
                 val navController = rememberNavController()
@@ -124,20 +116,18 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        if (permissionsToRequest.isNotEmpty()) {
-            ActivityCompat.requestPermissions(this, permissionsToRequest.toTypedArray(), 1)
-        }
-    }
-
-    private fun requestNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(
-                    this,
-                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-                    NOTIFICATION_PERMISSION_REQUEST
-                )
+                permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
             }
+        }
+
+        if (permissionsToRequest.isNotEmpty()) {
+            println("Requesting permissions: $permissionsToRequest")
+            ActivityCompat.requestPermissions(this, permissionsToRequest.toTypedArray(), 1)
+        } else {
+            println("All permissions are already granted.")
+            startSensorService()
         }
     }
 
@@ -162,13 +152,20 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConversationView(navController: NavController, userName: String, imageUri: Uri?) {
+    val context = LocalContext.current
+    var inputMessage by remember { mutableStateOf("") }
+    var messages by remember { mutableStateOf(loadMessages(context)) }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Conversations") },
+                title = { Text(text = "Conversations") },
                 actions = {
                     IconButton(onClick = { navController.navigate("settings_view") }) {
-                        Icon(imageVector = Icons.Default.Settings, contentDescription = "Settings")
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Settings"
+                        )
                     }
                 }
             )
@@ -178,9 +175,48 @@ fun ConversationView(navController: NavController, userName: String, imageUri: U
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(16.dp)
         ) {
-            Conversation(messages = SampleData.conversationSample, userName = userName, imageUri = imageUri)
+            Spacer(modifier = Modifier.height(16.dp))
+
+            BasicTextField(
+                value = inputMessage,
+                onValueChange = { inputMessage = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .border(1.dp, MaterialTheme.colorScheme.primary)
+                    .padding(8.dp),
+                textStyle = MaterialTheme.typography.bodyLarge
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Button(
+                onClick = {
+
+                    if (inputMessage.isNotEmpty()) {
+                        val newMessage = Message(author = userName, body = inputMessage)
+                        messages = messages + newMessage
+                        inputMessage = ""
+
+                        saveMessages(context, messages)
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+            ) {
+                Text("Send")
+            }
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 16.dp)
+            ) {
+                items(messages) { message ->
+                    MessageCard(message, userName = userName, imageUri = imageUri)
+                }
+            }
         }
     }
 }
@@ -283,6 +319,25 @@ fun loadUserName(context: Context): String {
     return sharedPref.getString("user_name", "User") ?: "User"
 }
 
+fun saveMessages(context: Context, messages: List<Message>) {
+    val gson = Gson()
+    val json = gson.toJson(messages)
+    val sharedPreferences = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+    sharedPreferences.edit().putString("messages", json).apply()
+}
+
+fun loadMessages(context: Context): List<Message> {
+    val sharedPreferences = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+    val json = sharedPreferences.getString("messages", null)
+    return if (json != null) {
+        val gson = Gson()
+        val type = object : TypeToken<List<Message>>() {}.type
+        gson.fromJson(json, type)
+    } else {
+        emptyList()
+    }
+}
+
 data class Message(val author: String, val body: String)
 
 @Composable
@@ -331,15 +386,6 @@ fun MessageCard(msg: Message, userName: String? = null, imageUri: Uri? = null) {
                     style = MaterialTheme.typography.bodyMedium
                 )
             }
-        }
-    }
-}
-
-@Composable
-fun Conversation(messages: List<Message>, userName: String, imageUri: Uri?) {
-    LazyColumn {
-        items(messages) { message ->
-            MessageCard(msg = message, userName = userName, imageUri = imageUri)
         }
     }
 }
